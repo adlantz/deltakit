@@ -78,6 +78,8 @@ class DiscretisationStrategy(Enum):
     """Strategy to use to generate discretisation point for fitting a noisy function
     with a polynomial."""
 
+    # TODO: add C Optimal strategy
+
     LINEAR = auto()
     """Linearly spaced points between the discretisation space boundaries."""
     LOGARITHMIC = auto()
