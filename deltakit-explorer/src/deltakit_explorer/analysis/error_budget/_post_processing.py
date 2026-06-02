@@ -96,8 +96,15 @@ def _compute_logical_error_rate_per_round_from_results(
     max_shots: npt.NDArray[np.int_] | list[int] = []
     for nrounds in num_rounds:
         data_row = data.query(f"num_rounds == {nrounds}")
-        nfails = data_row["fails"].to_numpy()[0]
-        nshots = data_row["shots"].to_numpy()[0]
+        # Sum across rows: when a sweep contains duplicate rows at the same
+        # (noise_parameters, distance, num_rounds), each row carries an
+        # independent shot batch from the simulation. Aggregating fails and
+        # shots is the correct binomial-pooling operation. The previous
+        # behaviour ([0]) silently discarded every batch beyond the first,
+        # which is invisible for LINEAR/LOGARITHMIC sweeps (no duplicates)
+        # but breaks designs that intentionally replicate (e.g., c-optimal).
+        nfails = int(data_row["fails"].to_numpy().sum())
+        nshots = int(data_row["shots"].to_numpy().sum())
         num_fails.append(nfails)
         max_shots.append(nshots)
     # Filter out 0 fails

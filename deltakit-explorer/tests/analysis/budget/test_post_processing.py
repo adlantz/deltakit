@@ -7,6 +7,7 @@ import pandas as pd
 import pytest
 
 from deltakit_explorer.analysis.error_budget._post_processing import (
+    _compute_logical_error_rate_per_round_from_results,
     _filter_non_close_noise_parameters,
 )
 
@@ -83,3 +84,37 @@ def test_filter_non_close_noise_parameters_random(
     filtered_columns_data_frame = data_frame[all_noises_index]
     for row in filtered_columns_data_frame.to_numpy():
         np.testing.assert_allclose(row, random_parameters)
+
+
+def test_duplicate_rows_aggregate_via_sum() -> None:
+    """Regression test: when several rows share the same ``(distance,
+    num_rounds)``, the post-processing must sum their fails/shots rather than
+    take only the first row. Without this, sweep designs that intentionally
+    replicate (e.g., c-optimal) silently lose every batch beyond the first.
+    """
+    # Two batches per (distance, num_rounds). The buggy ``[0]``-indexed path
+    # would use only the first batch; the correct ``.sum()`` path produces a
+    # result equivalent to a single batch with the pooled counts.
+    data = pd.DataFrame(
+        [
+            {"distance": 3, "num_rounds": 3, "fails": 10, "shots": 1000},
+            {"distance": 3, "num_rounds": 3, "fails": 12, "shots": 1000},
+            {"distance": 3, "num_rounds": 5, "fails": 15, "shots": 1000},
+            {"distance": 3, "num_rounds": 5, "fails": 18, "shots": 1000},
+            {"distance": 3, "num_rounds": 7, "fails": 25, "shots": 1000},
+            {"distance": 3, "num_rounds": 7, "fails": 27, "shots": 1000},
+        ]
+    )
+    result = _compute_logical_error_rate_per_round_from_results([3, 5, 7], data)
+
+    pooled = pd.DataFrame(
+        [
+            {"distance": 3, "num_rounds": 3, "fails": 22, "shots": 2000},
+            {"distance": 3, "num_rounds": 5, "fails": 33, "shots": 2000},
+            {"distance": 3, "num_rounds": 7, "fails": 52, "shots": 2000},
+        ]
+    )
+    expected = _compute_logical_error_rate_per_round_from_results([3, 5, 7], pooled)
+
+    assert pytest.approx(expected.leppr) == result.leppr
+    assert pytest.approx(expected.leppr_stddev) == result.leppr_stddev
