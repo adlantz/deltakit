@@ -69,7 +69,7 @@ def compute_lambda_and_stddev_from_results(
             data, xi[:, i], noise_parameter_names
         )
         res = _compute_lambda_from_results(num_rounds_by_distance, filtered_data)
-        ret[0, i], stddev[0, i] = res.lambda_, res.lambda_stddev
+        ret[0, i], stddev[0, i] = res.lambda_, res.lambda_std
     return ret, stddev
 
 
