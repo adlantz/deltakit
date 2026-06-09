@@ -178,10 +178,12 @@ def generate_sweep_parameters(
     """
     # Getting the points on which we will estimate 1 / Λ into ``noise_parameters``.
     # This is performing a sweeping for each parameter individually.
-    xis: list[npt.NDArray[np.floating]] = [central_point.reshape((-1,))]
+    # Flatten  central point because discretisation functions expect flat `float`.
+    flat_central_point = central_point.reshape((-1,))
+    xis: list[npt.NDArray[np.floating]] = [flat_central_point]
     for i, (minimum, maximum) in enumerate(noise_parameters_exploration_bounds):
         variations = fitting_parameters.get_discretisation(
-            minimum, maximum, central_point[i]
+            minimum, maximum, flat_central_point[i]
         )
         xis.extend(_variate_ith_parameter_by(central_point, variations, i))
 
@@ -325,8 +327,9 @@ def inverse_lambda_gradient_at(
     noise_parameters_exploration_bounds: list[tuple[float, float]],
     fitting_parameters: FittingParameters = FittingParameters(),
     sampling_parameters: SamplingParameters = SamplingParameters(),
-    memory_generator: MemoryGenerator
-    | Mapping[int, Mapping[int, Circuit]] = get_rotated_surface_code_memory_circuit,
+    memory_generator: (
+        MemoryGenerator | Mapping[int, Mapping[int, Circuit]]
+    ) = get_rotated_surface_code_memory_circuit,
 ) -> tuple[npt.NDArray[np.floating], npt.NDArray[np.floating]]:
     """The gradient of 1 / Λ at the provided ``noise_model_parameters``.
 

@@ -5,18 +5,12 @@ import numpy as np
 import numpy.typing as npt
 import scipy.optimize
 
-# Number of candidate points the c-optimal optimizer searches over. The
-# optimizer picks ``num_points`` indices into a linspace of this many candidate
-# x-values within ``[a, b]``. Increasing this gives the optimizer finer
-# resolution at proportional cost.
+# Number of candidate points the c-optimal optimizer searches over. In testing, this seemed like
+# a healthy balance of precision and cost.
 _C_OPTIMAL_CANDIDATE_GRID_SIZE = 50
 
-# Threshold above which ``X.T @ X`` is treated as effectively singular and the
-# corresponding design is rejected by the c-optimal objective. After rescaling
-# the design points to ``[-1, 1]`` (see ``_c_optimal_objective``), the natural
-# conditioning of a well-spread design is ``O(10–100)``; this threshold is well
-# above that but well below ``1e16`` (where double-precision inversion becomes
-# unreliable).
+# We have to set a maximum threshold in our c optimal design to prevent it from returning
+# a singular matrix (i.e just sample 1 point for every run)
 _C_OPTIMAL_COND_THRESHOLD = 1e10
 
 
@@ -97,6 +91,8 @@ def _c_optimal_objective(
 ) -> float:
     """Slope variance at ``c`` for the design at the given candidate indices.
 
+    Reuses _get_variance_of_gradient_estimation_at_point() from _gradient.
+
     The variance is computed in rescaled ``[-1, 1]`` coordinates so the
     Vandermonde columns are all ``O(1)`` and ``cond(X.T @ X)`` is a meaningful
     measure of design quality rather than absolute x-scale.
@@ -109,8 +105,7 @@ def _c_optimal_objective(
 
     x = candidate_grid[indices.astype(int)]
 
-    # Rescale to [-1, 1]. Affine transform, so the argmin in x-space is the
-    # argmin in u-space. Without rescaling, the Vandermonde columns at typical
+    # Rescale to [-1, 1]. Without rescaling, the Vandermonde columns at typical
     # noise-parameter scales (x ~ 1e-3) span 12+ orders of magnitude and
     # cond(X.T @ X) ~ 1e15+ even for well-spread designs — making any
     # conditioning check meaningless.
@@ -145,7 +140,7 @@ def get_c_optimal_points(
 
     Optimisation runs ``scipy.optimize.differential_evolution`` with
     ``seed=0`` over indices into a linear candidate grid of size
-    :data:`_C_OPTIMAL_CANDIDATE_GRID_SIZE` — results are deterministic across
+    `_C_OPTIMAL_CANDIDATE_GRID_SIZE` — results are deterministic across
     calls with identical inputs.
 
     The returned design may contain duplicate values (replication), which
@@ -168,15 +163,17 @@ def get_c_optimal_points(
         duplicates.
 
     Raises:
-        ValueError: if ``a < c < b`` is not verified, or if ``num_points`` is
-            below ``degree + 1``.
+        ValueError: if ``c`` is not a scalar, if ``a < c < b`` is not verified,
+            or if ``num_points`` is below ``degree + 1``.
     """
-    # Robustness: callers (notably ``generate_sweep_parameters``) may pass
-    # ``central_point[i]`` as ``c``, which is a length-1 array rather than a
-    # scalar. Downstream broadcasting in
-    # ``_get_variance_of_gradient_estimation_at_point`` produces the wrong
-    # objective for array ``c``, so coerce to a Python float here.
-    c = float(np.asarray(c).reshape(()).item())
+    # Contract check: ``c`` must be a scalar. A non-scalar (e.g. a length-1
+    # array) silently produces the wrong objective via broadcasting in
+    # ``_get_variance_of_gradient_estimation_at_point``, so fail loudly here
+    # rather than coercing and hiding a caller bug.
+    if np.ndim(c) != 0:
+        msg = f"c must be a scalar, got an array of shape {np.shape(c)}."
+        raise ValueError(msg)
+    c = float(c)
 
     _check_interval(a, b, c)
     if num_points < degree + 1:
@@ -189,6 +186,13 @@ def get_c_optimal_points(
     candidate_grid = np.linspace(a, b, _C_OPTIMAL_CANDIDATE_GRID_SIZE)
     bounds = [(0, _C_OPTIMAL_CANDIDATE_GRID_SIZE - 1) for _ in range(num_points)]
 
+    # Find the optimal x via differential evolution algorithm. Differential evolution
+    # is a standard approach to this kind of problem. It doesn't rely on finding the
+    # gradient of the objective function and it tests many regions of the solution
+    # space simultaneously (unlike simulated annealing).
+    # The mutation and recombination parameters were chosen to be near the SciPy defaults
+    # with some brief testing to verify. The workers and seed parameters ensure a deterministic
+    # output.
     result = scipy.optimize.differential_evolution(
         _c_optimal_objective,
         bounds=bounds,

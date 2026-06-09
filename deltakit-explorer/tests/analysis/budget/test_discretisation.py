@@ -124,13 +124,15 @@ def test_c_optimal_raises_below_minimum_num_points() -> None:
         get_c_optimal_points(2e-3, 1e-2, 7e-3, 3, 3)
 
 
-def test_c_optimal_accepts_array_c_for_protocol_compatibility() -> None:
-    """``generate_sweep_parameters`` passes ``central_point[i]`` (a length-1
-    array) as ``c``. Calling with an array must produce the same design as a
-    scalar — the function must internally coerce."""
-    pts_scalar = get_c_optimal_points(2e-3, 1e-2, 7e-3, 10, 3)
-    pts_array = get_c_optimal_points(2e-3, 1e-2, np.array([7e-3]), 10, 3)
-    np.testing.assert_array_equal(pts_scalar, pts_array)
+@pytest.mark.parametrize("bad_c", [np.array([7e-3]), np.array([[7e-3]]), np.array([6e-3, 8e-3])])
+def test_c_optimal_rejects_non_scalar_c(bad_c: npt.NDArray[np.floating]) -> None:
+    """``c`` must be a scalar float. A non-scalar (e.g. a length-1 array)
+    silently corrupts the slope-variance objective via broadcasting in
+    ``_get_variance_of_gradient_estimation_at_point``, so it is rejected
+    loudly rather than coerced. Callers must pass a scalar (see
+    ``generate_sweep_parameters``, which flattens ``central_point`` first)."""
+    with pytest.raises(ValueError, match="c must be a scalar"):
+        get_c_optimal_points(2e-3, 1e-2, bad_c, 10, 3)
 
 
 def test_c_optimal_is_deterministic() -> None:
