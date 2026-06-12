@@ -37,12 +37,18 @@ def test_http_verification_is_set():
     _auth.set_https_verification(True)
     # wrong host certificate
     url = "https://wrong.host.badssl.com/"
-    with pytest.raises(requests.exceptions.SSLError):
-        requests.get(
-            url,
-            verify=not _auth.https_verification_disabled(),
-            timeout=5,
-        )
+    try:
+        with pytest.raises(requests.exceptions.SSLError):
+            requests.get(
+                url,
+                verify=not _auth.https_verification_disabled(),
+                timeout=5,
+            )
+    except requests.exceptions.ConnectionError:
+        # The external badssl.com endpoint is occasionally unreachable in CI.
+        # Environmental flake, not a real failure, so skip rather than fail.
+
+        pytest.skip("badssl.com unreachable (network flake)")
 
 
 @pytest.mark.filterwarnings("ignore:Unverified HTTPS")

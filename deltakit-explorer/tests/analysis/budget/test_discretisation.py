@@ -123,7 +123,9 @@ def test_c_optimal_raises_below_minimum_num_points() -> None:
         get_c_optimal_points(2e-3, 1e-2, 7e-3, 3, 3)
 
 
-@pytest.mark.parametrize("bad_c", [np.array([7e-3]), np.array([[7e-3]]), np.array([6e-3, 8e-3])])
+@pytest.mark.parametrize(
+    "bad_c", [np.array([7e-3]), np.array([[7e-3]]), np.array([6e-3, 8e-3])]
+)
 def test_c_optimal_rejects_non_scalar_c(bad_c: npt.NDArray[np.floating]) -> None:
     """``c`` must be a scalar float. A non-scalar (e.g. a length-1 array)
     silently corrupts the slope-variance objective via broadcasting in
@@ -155,7 +157,7 @@ def test_c_optimal_is_deterministic() -> None:
     ],
 )
 def test_c_optimal_produces_wellconditioned_designs(a: float, b: float) -> None:
-    """The cond threshold should prevent the optimizer from picking rank-
+    """The cond threshold should prevent the optimiser from picking rank-
     deficient designs, even across orders of magnitude in x-scale.
 
     Args:

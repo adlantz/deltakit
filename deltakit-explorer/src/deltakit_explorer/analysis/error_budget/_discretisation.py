@@ -5,7 +5,7 @@ import numpy as np
 import numpy.typing as npt
 import scipy.optimize
 
-# Number of candidate points the c-optimal optimizer searches over. In testing, this seemed like
+# Number of candidate points the c-optimal optimiser searches over. In testing, this seemed like
 # a healthy balance of precision and cost.
 _C_OPTIMAL_CANDIDATE_GRID_SIZE = 50
 
@@ -110,7 +110,7 @@ def _c_optimal_objective(
     """
     # Local import to avoid a circular dependency at module load time:
     # ``_gradient`` imports ``_parameters`` which imports this module.
-    from deltakit_explorer.analysis.error_budget._gradient import (
+    from deltakit_explorer.analysis.error_budget._gradient import (  # noqa: PLC0415
         _get_variance_of_gradient_estimation_at_point,
     )
 
@@ -127,7 +127,7 @@ def _c_optimal_objective(
     X = np.vander(u, degree + 1, increasing=True)
     XTX = X.T @ X
 
-    # Reject ill-conditioned (effectively singular) designs. The optimizer
+    # Reject ill-conditioned (effectively singular) designs. The optimiser
     # sees +inf and naturally avoids these regions.
     if np.linalg.cond(XTX) > _C_OPTIMAL_COND_THRESHOLD:
         return float("inf")

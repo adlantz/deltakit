@@ -93,7 +93,7 @@ def test_duplicate_rows_aggregate_via_sum() -> None:
     replicate (e.g., c-optimal) silently lose every batch beyond the first.
     """
     # Two batches per (distance, num_rounds), drawn from a synthetic model
-    # with LEPpR ~ 0.05 → LEP(r) = (1 − (1 − 2·LEPpR)^r) / 2. The buggy
+    # with LEPpR ~ 0.05 → LEP(r) = (1 - (1 - 2·LEPpR)^r) / 2. The buggy
     # ``[0]``-indexed path would use only the first batch; the correct
     # ``.sum()`` path produces a result equivalent to a single batch with the
     # pooled counts.
