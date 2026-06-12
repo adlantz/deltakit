@@ -98,8 +98,7 @@ def _compute_logical_error_rate_per_round_from_results(
         data_row = data.query(f"num_rounds == {nrounds}")
         # Sum across rows: when a sweep contains duplicate rows at the same
         # (noise_parameters, distance, num_rounds), each row carries an
-        # independent shot batch from the simulation. Aggregating fails and
-        # shots is the correct binomial-pooling operation. The previous
+        # independent shot batch from the simulation. The previous
         # behaviour ([0]) silently discarded every batch beyond the first,
         # which is invisible for LINEAR/LOGARITHMIC sweeps (no duplicates)
         # but breaks designs that intentionally replicate (e.g., c-optimal).

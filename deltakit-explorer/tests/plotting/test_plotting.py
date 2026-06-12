@@ -159,8 +159,8 @@ class TestVisualisation:
         img1 = img.imread(path1)
         img2 = img.imread(path2)
         assert img2.shape == img1.shape
-    
-    @pytest.mark.xfail(reason="Ignoring until test bug (Issue #...) is resolved")
+
+    @pytest.mark.xfail(reason="Ignoring until CI test bug (Issue #284) is resolved")
     def test_detect_rate_plot(self, tmp_path):
         coord_w2 = set({(5, 6), (1, 4), (4, 3), (2, 7)})
         plt.figure(figsize=(6.4, 4.8))
@@ -184,7 +184,7 @@ class TestVisualisation:
         plt.clf()
         self.assert_same_size(path, path_ref)
 
-    @pytest.mark.xfail(reason="Ignoring until the bug [issue ] is resolved")
+    @pytest.mark.xfail(reason="Ignoring until CI test bug (Issue #284) is resolved")
     def test_plot_correlation_matrix(self, tmp_path):
         stick = np.linspace(-0.5, 0.5, 32).reshape(-1, 1)
         mx = stick @ stick.T
