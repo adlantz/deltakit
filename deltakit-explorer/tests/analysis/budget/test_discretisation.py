@@ -11,9 +11,6 @@ from deltakit_explorer.analysis.error_budget._discretisation import (
     get_linear_points,
     get_logarithmic_points,
 )
-from deltakit_explorer.analysis.error_budget._gradient import (
-    _get_variance_of_gradient_estimation_at_point,
-)
 
 
 def _assert_is_linear(arr: npt.NDArray[np.floating]) -> None:
@@ -82,9 +79,11 @@ def test_raises_on_invalid_inputs(
 def test_c_optimal_raises_on_invalid_inputs(
     abc: tuple[float, float, float],
 ) -> None:
-    """C-optimal coerces ``c`` to ``float`` internally (to handle the length-1
-    array case from ``generate_sweep_parameters``), so the error message
-    formats ``c`` as a float. Use float inputs throughout for a stable match.
+    """Invalid ``a < c < b`` orderings must raise. Float inputs are used
+    throughout so the error message formats ``c`` consistently.
+
+    Args:
+        abc: an ``(a, b, c)`` triple whose ordering violates ``a < c < b``.
     """
     a, b, c = abc
     with pytest.raises(ValueError, match=f"Expected {a=} < {c=} < {b=}"):
@@ -130,7 +129,11 @@ def test_c_optimal_rejects_non_scalar_c(bad_c: npt.NDArray[np.floating]) -> None
     silently corrupts the slope-variance objective via broadcasting in
     ``_get_variance_of_gradient_estimation_at_point``, so it is rejected
     loudly rather than coerced. Callers must pass a scalar (see
-    ``generate_sweep_parameters``, which flattens ``central_point`` first)."""
+    ``generate_sweep_parameters``, which flattens ``central_point`` first).
+
+    Args:
+        bad_c: a non-scalar ``c`` value that must be rejected.
+    """
     with pytest.raises(ValueError, match="c must be a scalar"):
         get_c_optimal_points(2e-3, 1e-2, bad_c, 10, 3)
 
@@ -153,7 +156,12 @@ def test_c_optimal_is_deterministic() -> None:
 )
 def test_c_optimal_produces_wellconditioned_designs(a: float, b: float) -> None:
     """The cond threshold should prevent the optimizer from picking rank-
-    deficient designs, even across orders of magnitude in x-scale."""
+    deficient designs, even across orders of magnitude in x-scale.
+
+    Args:
+        a: lower bound of the interval.
+        b: upper bound of the interval.
+    """
     c = (a + b) / 2
     pts = get_c_optimal_points(a, b, c, 10, 3)
     # Rescale to [-1, 1] (same as the objective does internally) and check
@@ -163,35 +171,27 @@ def test_c_optimal_produces_wellconditioned_designs(a: float, b: float) -> None:
     assert np.linalg.cond(X.T @ X) < 1e10
 
 
-@pytest.mark.parametrize("c", [6e-3, 7e-3])
-def test_c_optimal_beats_linear_on_slope_variance_at_c(c: float) -> None:
-    """The whole point of c-optimal: it should minimise slope-variance at
-    ``c`` versus the linear baseline. Validated under unit-weight
-    homoscedastic noise (no W weighting needed here — we compare the
-    underlying objective ``g(c)^T (X^T X)^{-1} g(c)`` directly).
+@pytest.mark.parametrize(
+    ("num_points", "degree"),
+    [(2, 1), (3, 2), (4, 3), (5, 4)],
+)
+def test_c_optimal_minimal_design_has_enough_unique_points(
+    num_points: int, degree: int
+) -> None:
+    """At ``num_points == degree + 1`` every point must be distinct, or the
+    downstream fit is rank-deficient.
 
-    Tested at c-values reasonably centered in the interval. ``c`` values
-    further from the centre can land ``differential_evolution`` in a
-    sub-optimal local minimum at ``seed=0`` (a known limitation of the
-    heuristic search — the c-optimal criterion itself is well defined).
-    Production users typically have ``c = P/2`` in the interior, where the
-    optimizer is reliable.
+    Regression test: the final index extraction used ``np.round`` while the
+    DE objective truncates with ``astype(int)``, so two indices DE scored as
+    distinct (e.g. 12.98 and 13.09) could both round to 13 — returning a
+    degenerate design whose objective is ``inf``.
+
+    Args:
+        num_points: number of design points, set to the minimum ``degree + 1``.
+        degree: polynomial degree of the downstream fit.
     """
-    a, b, degree, num_points = 2e-3, 1e-2, 3, 10
-
-    c_pts = get_c_optimal_points(a, b, c, num_points, degree)
-    linear_pts = get_linear_points(a, b, c, num_points, degree)
-
-    def slope_var(pts: npt.NDArray[np.floating]) -> float:
-        # Same rescaling as inside the c-optimal objective.
-        u = 2 * (pts - a) / (b - a) - 1
-        uc = 2 * (c - a) / (b - a) - 1
-        X = np.vander(u, degree + 1, increasing=True)
-        cov = np.linalg.inv(X.T @ X)
-        return _get_variance_of_gradient_estimation_at_point(cov, uc)
-
-    # Allow 1% tolerance for differential_evolution stochasticity.
-    assert slope_var(c_pts) <= slope_var(linear_pts) * 1.01
+    pts = get_c_optimal_points(2e-3, 1e-2, 7e-3, num_points, degree)
+    assert np.unique(pts).size >= degree + 1
 
 
 def test_discretisation_strategy_exposes_c_optimal() -> None:

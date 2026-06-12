@@ -96,6 +96,17 @@ def _c_optimal_objective(
     The variance is computed in rescaled ``[-1, 1]`` coordinates so the
     Vandermonde columns are all ``O(1)`` and ``cond(X.T @ X)`` is a meaningful
     measure of design quality rather than absolute x-scale.
+
+    Args:
+        indices: candidate-grid indices (floats, rounded internally) selecting
+            the design points to evaluate.
+        candidate_grid: the full grid of candidate x-values to choose from.
+        degree: polynomial degree of the downstream fit.
+        c: evaluation point at which the slope variance is computed.
+
+    Returns:
+        the slope-variance objective at ``c`` for this design, or ``inf`` if the
+        design is ill-conditioned.
     """
     # Local import to avoid a circular dependency at module load time:
     # ``_gradient`` imports ``_parameters`` which imports this module.
@@ -191,8 +202,8 @@ def get_c_optimal_points(
     # gradient of the objective function and it tests many regions of the solution
     # space simultaneously (unlike simulated annealing).
     # The mutation and recombination parameters were chosen to be near the SciPy defaults
-    # with some brief testing to verify. The workers and seed parameters ensure a deterministic
-    # output.
+    # with some brief testing to verify. The workers and seed parameters make the output
+    # deterministic (given the same package versions)
     result = scipy.optimize.differential_evolution(
         _c_optimal_objective,
         bounds=bounds,
@@ -203,28 +214,33 @@ def get_c_optimal_points(
         seed=0,
     )
 
-    optimal_indices = np.round(result.x).astype(int)
+    optimal_indices = result.x.astype(int)
     return np.sort(candidate_grid[optimal_indices])
 
 
 class DiscretisationStrategy(Enum):
     """Strategy to use to generate discretisation point for fitting a noisy function
-    with a polynomial."""
+    with a polynomial.
+
+    Attributes:
+        LINEAR: Linearly spaced points between the discretisation space boundaries.
+        LOGARITHMIC: Logarithmically spaced points between the discretisation space
+            boundaries.
+        C_OPTIMAL: Points chosen to minimise the variance of the gradient estimate
+            at the central evaluation point ``c``. Implements the c-optimal
+            experimental design criterion for polynomial regression. Empirically
+            achieves ~0.5x the slope variance of :attr:`LINEAR` at the same shot
+            budget for typical parameter ranges, but produces clustered designs
+            that may be sensitive to model misspecification. Recommended when
+            slope-at-``c`` precision is the primary target and the polynomial
+            degree is well-validated for the noise model. Implementation uses
+            :func:`scipy.optimize.differential_evolution` and is deterministic
+            across calls.
+    """
 
     LINEAR = auto()
-    """Linearly spaced points between the discretisation space boundaries."""
     LOGARITHMIC = auto()
-    """Logarithmically spaced points between the discretisation space boundaries."""
     C_OPTIMAL = auto()
-    """Points chosen to minimise the variance of the gradient estimate at the
-    central evaluation point ``c``. Implements the c-optimal experimental design
-    criterion for polynomial regression. Empirically achieves ~0.5x the slope
-    variance of :attr:`LINEAR` at the same shot budget for typical parameter
-    ranges, but produces clustered designs that may be sensitive to model
-    misspecification. Recommended when slope-at-``c`` precision is the primary
-    target and the polynomial degree is well-validated for the noise model.
-    Implementation uses :func:`scipy.optimize.differential_evolution` and is
-    deterministic across calls."""
 
     def __call__(
         self, a: float, b: float, c: float, num_points: int, degree: int, /
