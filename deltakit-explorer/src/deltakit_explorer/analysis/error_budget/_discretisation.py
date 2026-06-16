@@ -83,6 +83,34 @@ def get_logarithmic_points(
     return np.logspace(np.log10(a), np.log10(b), num_points, base=10)
 
 
+def _get_variance_of_gradient_estimation_at_point(
+    cov: npt.NDArray[np.floating], c: float
+) -> float:
+    """Reusing this function created by Adrien Suau (nelimee) that used to live in
+    _gradient.py but was removed recently.
+
+    Get the variance of the gradient estimation at the point ``c`` for a polynomial
+    with uncertainties on its coefficients provided by the covariance matrix ``cov``.
+
+    Args:
+        cov: an array of shape ``(d + 1, d + 1)`` representing the covariance
+            matrix of the coefficients defining the degree-d polynomial used to
+            estimate the gradient.
+        c: point at which the degree-d polynomial will be used to estimate the
+            gradient value.
+
+    Returns:
+        The variance of the gradient estimation at point ``c``.
+    """
+    # From https://en.wikipedia.org/wiki/Covariance#Covariance_of_linear_combinations we
+    # have an easy formula for the variance involving the covariance matrix.
+    n = cov.shape[0]
+    coeff_matrix = np.array(
+        [[(i + 1) * (j + 1) * c ** (i + j) for i in range(n - 1)] for j in range(n - 1)]
+    )
+    return float(np.sum(coeff_matrix * cov[1:, 1:]))
+
+
 def _c_optimal_objective(
     indices: npt.NDArray[np.floating],
     candidate_grid: npt.NDArray[np.floating],
@@ -90,8 +118,6 @@ def _c_optimal_objective(
     c: float,
 ) -> float:
     """Slope variance at ``c`` for the design at the given candidate indices.
-
-    Reuses _get_variance_of_gradient_estimation_at_point() from _gradient.
 
     The variance is computed in rescaled ``[-1, 1]`` coordinates so the
     Vandermonde columns are all ``O(1)`` and ``cond(X.T @ X)`` is a meaningful
@@ -108,11 +134,6 @@ def _c_optimal_objective(
         the slope-variance objective at ``c`` for this design, or ``inf`` if the
         design is ill-conditioned.
     """
-    # Local import to avoid a circular dependency at module load time:
-    # ``_gradient`` imports ``_parameters`` which imports this module.
-    from deltakit_explorer.analysis.error_budget._gradient import (  # noqa: PLC0415
-        _get_variance_of_gradient_estimation_at_point,
-    )
 
     x = candidate_grid[indices.astype(int)]
 
