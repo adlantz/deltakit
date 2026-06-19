@@ -146,6 +146,11 @@ filterwarnings = [
   # This warning is only raised by a few tests in deltakit-decode. This is a temporary
   # fix.
   "ignore:This process .* is multi-threaded, use of fork\\(\\) may lead to deadlocks in the child.:DeprecationWarning",
+  # Note: pytest 9.1 deprecates passing a bare iterator (e.g. ``itertools.product``)
+  # as parametrize argvalues. Several existing tests across the repo still do this;
+  # until they are wrapped in ``list(...)`` this keeps the deprecation from being
+  # promoted to an error by the ``error`` filter above. This is a temporary fix.
+  "ignore:Passing a non-Collection iterable to parametrize is deprecated",
 ]
 
 [tool.bandit]
@@ -176,6 +181,7 @@ depolarization = "depolarization"
 Authorization = "Authorization"   # Web-related field.
 color = "color"                   # Used in matplotlib and stim APIs.
 colors = "colors"
+minimize = "minimize"             # scipy.optimize.minimize / minimize_scalar
 optimize = "optimize"             # scipy.optimize
 ax = "ax"                         # Typical naming for matplotlib Axes instances.
 center = "center"

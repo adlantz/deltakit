@@ -8,8 +8,10 @@ import pandas as pd
 from deltakit_explorer.analysis import (
     LambdaData,
     calculate_lambda_and_lambda_stddev,
+    calculate_lambda_asymmetric,
     calculate_lep_and_lep_stddev,
     compute_logical_error_per_round,
+    fit_logical_error_per_round_asymmetric,
 )
 from deltakit_explorer.analysis import (
     LogicalErrorProbabilityPerRoundData as LEPPRData,
@@ -73,6 +75,38 @@ def compute_lambda_and_stddev_from_results(
     return ret, stddev
 
 
+def compute_lambda_interval_from_results(
+    num_rounds_by_distance: Mapping[int, Sequence[int]],
+    data: pd.DataFrame,
+) -> LambdaData:
+    """Compute Λ with asymmetric bounds from a single point's sampling results.
+
+    This is the asymmetric counterpart to :func:`_compute_lambda_from_results`: it
+    fits each distance with a binomial likelihood and propagates the per-distance
+    bounds through :func:`calculate_lambda_asymmetric`.
+
+    Args:
+        num_rounds_by_distance: a mapping from each code distance to the number of
+            rounds used to estimate the logical error rate per round.
+        data: the sampling results for a single noise point.
+
+    Returns:
+        The Λ fit with its asymmetric bounds populated.
+    """
+    distances = sorted(num_rounds_by_distance.keys())
+    lepprs: list[float] = []
+    lows: list[float] = []
+    highs: list[float] = []
+    for d in distances:
+        leppr = _compute_logical_error_rate_per_round_interval_from_results(
+            num_rounds_by_distance[d], data[data["distance"] == d]
+        )
+        lepprs.append(leppr.leppr)
+        lows.append(leppr.leppr_low if leppr.leppr_low is not None else leppr.leppr)
+        highs.append(leppr.leppr_high if leppr.leppr_high is not None else leppr.leppr)
+    return calculate_lambda_asymmetric(distances, lepprs, lows, highs)
+
+
 def _compute_lambda_from_results(
     num_rounds_by_distance: Mapping[int, Sequence[int]],
     data: pd.DataFrame,
@@ -89,27 +123,50 @@ def _compute_lambda_from_results(
     return calculate_lambda_and_lambda_stddev(distances, lepprs, leppr_stddevs)
 
 
-def _compute_logical_error_rate_per_round_from_results(
+def _extract_counts_from_results(
     num_rounds: npt.NDArray[np.int_] | Sequence[int], data: pd.DataFrame
-) -> LEPPRData:
-    num_fails: npt.NDArray[np.int_] | list[int] = []
-    max_shots: npt.NDArray[np.int_] | list[int] = []
+) -> tuple[npt.NDArray[np.int_], npt.NDArray[np.int_], npt.NDArray[np.int_]]:
+    """Pull (num_rounds, num_fails, num_shots) out of a results frame.
+
+    Rounds with zero fails are dropped, with a warning, because they cannot be
+    used to estimate a logical error rate.
+
+    Args:
+        num_rounds: the round counts to read out of the frame.
+        data: the sampling results for a single distance and noise point.
+
+    Returns:
+        The kept round counts together with the matching fails and shots.
+    """
+    num_fails: list[int] = []
+    max_shots: list[int] = []
     for nrounds in num_rounds:
         data_row = data.query(f"num_rounds == {nrounds}")
-        nfails = data_row["fails"].to_numpy()[0]
-        nshots = data_row["shots"].to_numpy()[0]
-        num_fails.append(nfails)
-        max_shots.append(nshots)
-    # Filter out 0 fails
+        num_fails.append(data_row["fails"].to_numpy()[0])
+        max_shots.append(data_row["shots"].to_numpy()[0])
     non_zeros_mask = np.asarray(num_fails) != 0
     if not np.all(non_zeros_mask):
         warnings.warn(
             "Found at least one sampling task with 0 fails. It will be ignored for "
             "logical error probability computation."
         )
-    num_rounds = np.asarray(num_rounds)[non_zeros_mask]
-    num_fails = np.asarray(num_fails)[non_zeros_mask]
-    max_shots = np.asarray(max_shots)[non_zeros_mask]
+    return (
+        np.asarray(num_rounds)[non_zeros_mask],
+        np.asarray(num_fails)[non_zeros_mask],
+        np.asarray(max_shots)[non_zeros_mask],
+    )
 
+
+def _compute_logical_error_rate_per_round_from_results(
+    num_rounds: npt.NDArray[np.int_] | Sequence[int], data: pd.DataFrame
+) -> LEPPRData:
+    rounds, num_fails, max_shots = _extract_counts_from_results(num_rounds, data)
     lep, lep_stddev = calculate_lep_and_lep_stddev(num_fails, max_shots)
-    return compute_logical_error_per_round(num_rounds, lep, lep_stddev)
+    return compute_logical_error_per_round(rounds, lep, lep_stddev)
+
+
+def _compute_logical_error_rate_per_round_interval_from_results(
+    num_rounds: npt.NDArray[np.int_] | Sequence[int], data: pd.DataFrame
+) -> LEPPRData:
+    rounds, num_fails, max_shots = _extract_counts_from_results(num_rounds, data)
+    return fit_logical_error_per_round_asymmetric(rounds, num_fails, max_shots)
