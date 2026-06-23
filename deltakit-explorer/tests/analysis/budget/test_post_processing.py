@@ -9,7 +9,37 @@ import pytest
 from deltakit_explorer.analysis.error_budget._post_processing import (
     _compute_logical_error_rate_per_round_from_results,
     _filter_non_close_noise_parameters,
+    compute_lambda_interval_from_results,
 )
+
+
+def test_compute_lambda_interval_from_results() -> None:
+    lambda_true, lambda0_true, spam = 3.0, 2.0, 0.005
+    distances = [3, 5, 7]
+    rounds = [2, 6, 10, 14]
+    shots = 1_000_000
+    rows = []
+    for distance in distances:
+        eps = lambda_true ** (-(distance + 1) / 2) / lambda0_true
+        for num_rounds in rounds:
+            fidelity = (1 - 2 * spam) * (1 - 2 * eps) ** num_rounds
+            fails = round((1 - fidelity) / 2 * shots)
+            rows.append(
+                {
+                    "distance": distance,
+                    "num_rounds": num_rounds,
+                    "fails": fails,
+                    "shots": shots,
+                }
+            )
+    data = pd.DataFrame(rows)
+    result = compute_lambda_interval_from_results(
+        dict.fromkeys(distances, rounds), data
+    )
+    assert result.has_asymmetric_bounds
+    assert result.lambda_interval is not None
+    assert result.lambda_interval.low <= result.lambda_ <= result.lambda_interval.high
+    assert result.lambda_ == pytest.approx(lambda_true, rel=0.1)
 
 
 @dataclass

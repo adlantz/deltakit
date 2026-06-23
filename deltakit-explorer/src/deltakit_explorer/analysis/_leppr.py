@@ -9,6 +9,11 @@ from scipy.optimize import curve_fit
 from uncertainties import correlated_values, ufloat, unumpy
 from uncertainties.umath import exp as uexp
 
+from deltakit_explorer.analysis._binomial_fit import (
+    DEFAULT_MAX_LIKELIHOOD_FACTOR,
+    fit_binomial_batch,
+    fit_leppr_and_spam,
+)
 from deltakit_explorer.analysis._estimate import Estimate
 
 
@@ -89,6 +94,11 @@ class LogicalErrorProbabilityPerRoundData:
         num_rounds: Array containing the number of rounds.
         spam_error: Computed SPAM error probability.
         spam_error_stddev: SPAM error probability standard deviation.
+        leppr_low: Lower bound of the LEPPR confidence interval. Only set by
+            :func:`fit_logical_error_per_round_asymmetric`, otherwise None.
+        leppr_high: Upper bound of the LEPPR confidence interval, or None.
+        spam_error_low: Lower bound of the SPAM error interval, or None.
+        spam_error_high: Upper bound of the SPAM error interval, or None.
     """
 
     leppr: float
@@ -96,6 +106,10 @@ class LogicalErrorProbabilityPerRoundData:
     num_rounds: npt.NDArray[np.int_]
     spam_error: float
     spam_error_stddev: float
+    leppr_low: float | None = None
+    leppr_high: float | None = None
+    spam_error_low: float | None = None
+    spam_error_high: float | None = None
 
 
 def compute_logical_error_per_round(
@@ -447,6 +461,66 @@ def simulate_different_round_numbers_for_lep_per_round_estimation(
     return np.asarray(nrounds), np.asarray(nfails), np.asarray(nshots)
 
 
+def fit_logical_error_per_round_asymmetric(
+    num_rounds: npt.NDArray[np.int_] | Sequence[int],
+    num_fails: npt.NDArray[np.int_] | Sequence[int],
+    num_shots: npt.NDArray[np.int_] | Sequence[int],
+    *,
+    num_sigmas: float = 1.0,
+    fixed_spam: float | None = None,
+) -> LogicalErrorProbabilityPerRoundData:
+    """Fit the logical error probability per round with asymmetric intervals.
+
+    The name uses ``fit_`` (rather than ``compute_``) to distinguish this
+    likelihood fit over several round counts from :func:`calculate_lep_asymmetric`,
+    which returns a per-point binomial interval for a single measurement.
+
+    Unlike :func:`compute_logical_error_per_round`, which performs a weighted
+    least-squares fit with symmetric error bars, this fits the per-round model
+    directly to the raw counts by maximum binomial likelihood and profiles each
+    parameter for its confidence interval. The returned data carries both the
+    symmetric ``leppr_stddev`` (taken as half the interval width, for
+    compatibility) and the asymmetric ``leppr_low`` / ``leppr_high`` bounds.
+
+    Note that the per-round error and the SPAM error are correlated, so when the
+    data only weakly constrains one of them its interval can be wide; this
+    reflects the genuine uncertainty rather than a failure of the fit. Pass
+    ``fixed_spam`` if the SPAM error is known to tighten the per-round interval.
+
+    Args:
+        num_rounds: Number of QEC rounds for each measured point.
+        num_fails: Number of logical failures observed at each round count.
+        num_shots: Number of shots at each round count.
+        num_sigmas: Width of the interval, in sigmas.
+        fixed_spam: A known SPAM error to hold fixed during the fit, or None.
+
+    Returns:
+        The fit results, with the asymmetric bounds populated.
+    """
+    rounds = np.asarray(num_rounds)
+    fails = np.asarray(num_fails)
+    shots = np.asarray(num_shots)
+    order = np.argsort(rounds)
+    rounds, fails, shots = rounds[order], fails[order], shots[order]
+
+    leppr_fit, spam_fit = fit_leppr_and_spam(
+        rounds, fails, shots, num_sigmas=num_sigmas, fixed_spam=fixed_spam
+    )
+    # The symmetric ``leppr_stddev`` is reported as half the asymmetric interval
+    # width, so consumers that expect a single sigma still get a sensible value.
+    return LogicalErrorProbabilityPerRoundData(
+        leppr=leppr_fit.best,
+        leppr_stddev=(leppr_fit.high - leppr_fit.low) / 2,
+        num_rounds=rounds,
+        spam_error=spam_fit.best,
+        spam_error_stddev=(spam_fit.high - spam_fit.low) / 2,
+        leppr_low=leppr_fit.low,
+        leppr_high=leppr_fit.high,
+        spam_error_low=spam_fit.low,
+        spam_error_high=spam_fit.high,
+    )
+
+
 def calculate_lep_and_lep_stddev(
     fails: npt.NDArray[np.int_] | Sequence[int] | int,
     shots: npt.NDArray[np.int_] | Sequence[int] | int,
@@ -487,3 +561,49 @@ def calculate_lep_and_lep_stddev(
     lep = fails / shots
     lep_stddev = np.sqrt(lep * (1 - lep) / shots)
     return lep, lep_stddev
+
+
+def calculate_lep_asymmetric(
+    fails: npt.NDArray[np.int_] | Sequence[int] | int,
+    shots: npt.NDArray[np.int_] | Sequence[int] | int,
+    *,
+    max_likelihood_factor: float = DEFAULT_MAX_LIKELIHOOD_FACTOR,
+) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64], npt.NDArray[np.float64]]:
+    """Calculate the logical error probability with an asymmetric interval.
+
+    This is the binomial counterpart to :func:`calculate_lep_and_lep_stddev`. It
+    returns the best estimate together with lower and upper bounds that follow
+    the shape of the binomial likelihood, so the lower bound never drops below
+    zero and the upper tail is not understated when the error rate is small.
+
+    Args:
+        fails: The number of logical failures. Zero is allowed here.
+        shots: The number of shots the experiment was run for.
+        max_likelihood_factor: How much less likely than the best fit a rate may
+            be before it is excluded from the interval.
+
+    Returns:
+        Three arrays ``(low, best, high)`` giving, per point, the lower bound,
+        the maximum-likelihood estimate and the upper bound.
+
+    Raises:
+        ValueError: When inputs do not match lengths or contain negative entries.
+
+    Examples:
+        >>> low, lep, high = analysis.calculate_lep_asymmetric(
+        ...     fails=[2, 151, 34],
+        ...     shots=[500000] * 3,
+        ... )
+    """
+    fails = np.asarray([fails]) if isinstance(fails, int) else np.asarray(fails)
+    shots = np.asarray([shots]) if isinstance(shots, int) else np.asarray(shots)
+    if len(fails) != len(shots):
+        msg = "Input data do not match lengths."
+        raise ValueError(msg)
+    if np.any(fails < 0) or np.any(shots <= 0):
+        msg = "`fails` must be non-negative and `shots` strictly positive."
+        raise ValueError(msg)
+    low, best, high = fit_binomial_batch(
+        shots, fails, max_likelihood_factor=max_likelihood_factor
+    )
+    return low, best, high

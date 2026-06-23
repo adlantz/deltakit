@@ -15,8 +15,8 @@ from deltakit_explorer.analysis import (
 
 
 def _lambda_interpolated(
-    lambda0: npt.NDArray[np.floating],
-    lambda_: npt.NDArray[np.floating],
+    lambda0: float | npt.NDArray[np.floating],
+    lambda_: float | npt.NDArray[np.floating],
     distances: npt.NDArray[np.int_],
 ) -> npt.NDArray[np.floating]:
     """Interpolate the logical error probability per round for the given parameters.
@@ -80,6 +80,59 @@ def _lep_interpolated(
     """
     expected_fidelity = (1 - 2 * spam) * (1 - 2 * leppr) ** rounds_interpolated
     return (1 - expected_fidelity) / 2
+
+
+def _error_rate_band(
+    value: float, stddev: float, num_sigmas: float
+) -> tuple[float, float]:
+    """Asymmetric ``num_sigmas`` band for an error probability.
+
+    The error probability ``e`` is fitted through the fidelity ``f = 1 - 2 e``,
+    which is the quantity that is Gaussian after the log-linear fit. Propagating
+    the band in that space and mapping back gives bounds that stay below ``0.5``
+    and are not symmetric around ``value`` once ``value`` is small.
+
+    Args:
+        value: The fitted error probability.
+        stddev: Its standard deviation.
+        num_sigmas: Width of the band, in standard deviations.
+
+    Returns:
+        The ``(low, high)`` bounds. The caller is expected to clip to ``[0, 1]``.
+    """
+    fidelity = 1 - 2 * value
+    if fidelity <= 0:
+        # Outside the modelled regime; fall back to a symmetric band.
+        return value - num_sigmas * stddev, value + num_sigmas * stddev
+    sigma_log = 2 * stddev / fidelity
+    low = (1 - fidelity * np.exp(num_sigmas * sigma_log)) / 2
+    high = (1 - fidelity * np.exp(-num_sigmas * sigma_log)) / 2
+    return low, high
+
+
+def _suppression_band(
+    value: float, stddev: float, num_sigmas: float
+) -> tuple[float, float]:
+    """Asymmetric ``num_sigmas`` band for a positive suppression factor.
+
+    Λ and Λ₀ are exponentials of the linear fit parameters, so the natural band
+    is multiplicative. This keeps both bounds strictly positive, unlike a plain
+    ``value ± num_sigmas · stddev``.
+
+    Args:
+        value: The fitted suppression factor (Λ or Λ₀).
+        stddev: Its standard deviation.
+        num_sigmas: Width of the band, in standard deviations.
+
+    Returns:
+        The ``(low, high)`` bounds.
+    """
+    if value <= 0:
+        return value - num_sigmas * stddev, value + num_sigmas * stddev
+    sigma_log = stddev / value
+    return value * np.exp(-num_sigmas * sigma_log), value * np.exp(
+        num_sigmas * sigma_log
+    )
 
 
 @dataclass(frozen=True)
@@ -188,19 +241,45 @@ def interpolate_lambda(
         lambda_data.distances[0], lambda_data.distances[-1], num_points
     ).reshape(1, num_points)
 
-    # Offsets
-    offsets = np.array([-num_sigmas, 0.0, num_sigmas]) * lambda_data.lambda0_std
+    # Use the bounds from an asymmetric fit if they are available, otherwise
+    # build a multiplicative band from the symmetric standard deviations (Λ and Λ₀
+    # are exponentials of the fit parameters, so the band is not symmetric).
+    if lambda_data.has_asymmetric_bounds:
+        assert lambda_data.lambda_interval is not None
+        assert lambda_data.lambda0_interval is not None
+        lambda_low, lambda_high = (
+            lambda_data.lambda_interval.low,
+            lambda_data.lambda_interval.high,
+        )
+        lambda0_low, lambda0_high = (
+            lambda_data.lambda0_interval.low,
+            lambda_data.lambda0_interval.high,
+        )
+    else:
+        lambda_low, lambda_high = _suppression_band(
+            lambda_data.lambda_, lambda_data.lambda_std, num_sigmas
+        )
+        lambda0_low, lambda0_high = _suppression_band(
+            lambda_data.lambda0, lambda_data.lambda0_std, num_sigmas
+        )
 
-    # Reshape interpolable parameters into (3, 1) arrays for vectorisation
-    lambda0_vals = (lambda_data.lambda0 + offsets).reshape(3, 1)
-    lambda_vals = (lambda_data.lambda_ + offsets).reshape(3, 1)
+    # The error probability decreases with both Λ and Λ₀, so the largest factors
+    # give the lower boundary of the band and the smallest give the upper one.
+    interpolated = _lambda_interpolated(
+        lambda_data.lambda0, lambda_data.lambda_, distances_interpolated
+    ).ravel()
+    lower_boundary = _lambda_interpolated(
+        lambda0_high, lambda_high, distances_interpolated
+    ).ravel()
+    upper_boundary = _lambda_interpolated(
+        lambda0_low, lambda_low, distances_interpolated
+    ).ravel()
 
-    # Compute all curves at once
-    lower_boundary, interpolated, upper_boundary = _lambda_interpolated(
-        lambda0_vals, lambda_vals, distances_interpolated
+    fit_label = (
+        f"Fit, Λ={lambda_data.lambda_:.4f} "
+        f"(+{lambda_high - lambda_data.lambda_:.4f} / "
+        f"-{lambda_data.lambda_ - lambda_low:.4f}, {num_sigmas}σ)"  # noqa: RUF001
     )
-
-    fit_label = f"Fit, Λ={lambda_data.lambda_:.4f} ± {offsets[2]:.4f} ({num_sigmas}σ)"  # noqa: RUF001
 
     return LambdaResult(
         distances=distances_interpolated.ravel(),  # Reshape back into 1D array.
@@ -257,23 +336,38 @@ def interpolate_leppr(
         leppr_data.num_rounds[0], leppr_data.num_rounds[-1], num_points
     ).reshape(1, num_points)
 
-    # Offsets
-    spam_offsets = (
-        np.array([-num_sigmas, 0.0, num_sigmas]) * leppr_data.spam_error_stddev
-    )
-    leppr_offsets = np.array([-num_sigmas, 0.0, num_sigmas]) * leppr_data.leppr_stddev
+    # Build asymmetric bands for the SPAM error and the per-round error, then
+    # combine them through the fidelity model. Both bands are ordered
+    # (low, best, high), and the experiment error grows with both quantities, so
+    # the first row gives the lower boundary and the last row the upper one. The
+    # bounds from an asymmetric fit are used when available, otherwise they are
+    # derived from the symmetric standard deviations.
+    if (
+        leppr_data.leppr_low is not None
+        and leppr_data.leppr_high is not None
+        and leppr_data.spam_error_low is not None
+        and leppr_data.spam_error_high is not None
+    ):
+        spam_low, spam_high = leppr_data.spam_error_low, leppr_data.spam_error_high
+        leppr_low, leppr_high = leppr_data.leppr_low, leppr_data.leppr_high
+    else:
+        spam_low, spam_high = _error_rate_band(
+            leppr_data.spam_error, leppr_data.spam_error_stddev, num_sigmas
+        )
+        leppr_low, leppr_high = _error_rate_band(
+            leppr_data.leppr, leppr_data.leppr_stddev, num_sigmas
+        )
+    spam_vals = np.array([spam_low, leppr_data.spam_error, spam_high]).reshape(3, 1)
+    leppr_vals = np.array([leppr_low, leppr_data.leppr, leppr_high]).reshape(3, 1)
 
-    # Reshape interpolable parameters into (3, 1) arrays for vectorisation
-    spam_vals = (leppr_data.spam_error + spam_offsets).reshape(3, 1)
-    leppr_vals = (leppr_data.leppr + leppr_offsets).reshape(3, 1)
-
-    # Compute all curves at once
     lower_boundary, interpolated, upper_boundary = _lep_interpolated(
         spam_vals, leppr_vals, rounds_interpolated
     )
 
     fit_label = (
-        f"Fit, ε={leppr_data.leppr:.4f} ± {leppr_offsets[2]:.4f} ({num_sigmas}σ)"  # noqa: RUF001
+        f"Fit, ε={leppr_data.leppr:.4f} "
+        f"(+{leppr_high - leppr_data.leppr:.4f} / "
+        f"-{leppr_data.leppr - leppr_low:.4f}, {num_sigmas}σ)"  # noqa: RUF001
     )
 
     return LogicalErrorProbabilityPerRoundResult(

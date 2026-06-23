@@ -9,7 +9,6 @@ from itertools import chain
 import deltakit_stim as stim
 
 from deltakit_circuit._annotations._detector import MeasurementRecord
-from deltakit_circuit._stim_version_compatibility import is_stim_tag_feature_available
 
 
 class Observable:
@@ -70,11 +69,7 @@ class Observable:
         stim_targets = chain.from_iterable(
             record.stim_targets() for record in self.measurements
         )
-        kwargs = (
-            {"tag": self.tag}
-            if self.tag is not None and is_stim_tag_feature_available()
-            else {}
-        )
+        kwargs = {"tag": self.tag} if self.tag is not None else {}
         stim_circuit.append(
             self.stim_string, stim_targets, self._observable_index, **kwargs
         )

@@ -207,7 +207,8 @@ class TestNativeGateSet:
 
 class TestExhaustiveGateSet:
     @pytest.fixture(scope="class")
-    def default_exhaustive_gateset(request):
+    @classmethod
+    def default_exhaustive_gateset(cls):
         return ExhaustiveGateSet()
 
     def test_1q_gateset_output(self, default_exhaustive_gateset):

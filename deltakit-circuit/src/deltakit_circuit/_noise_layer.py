@@ -13,7 +13,6 @@ import deltakit_stim as stim
 from deltakit_circuit._qubit_identifiers import Qubit, T, U
 from deltakit_circuit._qubit_mapping import default_qubit_mapping
 from deltakit_circuit._stim_identifiers import AppendArguments, NoiseStimIdentifier
-from deltakit_circuit._stim_version_compatibility import is_stim_tag_feature_available
 from deltakit_circuit.noise_channels import (
     Leakage,
     Relax,
@@ -168,11 +167,7 @@ class NoiseLayer(Generic[T]):
         for stim_string, targets, probabilities, tag in self._collect_noise_channels(
             qubit_mapping
         ):
-            kwargs = (
-                {"tag": tag}
-                if tag is not None and is_stim_tag_feature_available()
-                else {}
-            )
+            kwargs = {"tag": tag} if tag is not None else {}
             stim_circuit.append(stim_string, targets, probabilities, **kwargs)
 
     def approx_equals(  # noqa: PLR0911
