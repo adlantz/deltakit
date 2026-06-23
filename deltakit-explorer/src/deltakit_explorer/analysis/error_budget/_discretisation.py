@@ -209,10 +209,7 @@ def get_c_optimal_points(
 
     _check_interval(a, b, c)
     if num_points < degree + 1:
-        msg = (
-            f"For a degree {degree} polynomial, you must sample at least "
-            f"{degree + 1} points."
-        )
+        msg = f"For a degree {degree} polynomial, you must sample at least {degree + 1} points."
         raise ValueError(msg)
 
     candidate_grid = np.linspace(a, b, _C_OPTIMAL_CANDIDATE_GRID_SIZE)
