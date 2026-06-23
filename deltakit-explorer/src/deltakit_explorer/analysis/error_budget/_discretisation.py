@@ -132,7 +132,7 @@ def _c_optimal_objective(
     It's worth noting in this objective function there's two points of discontuinity,
     the first is where where we round indeces to integers, the second is when
     we return np.inf. We use `differential_evolution` to optimize this function
-    and it behaves fine but other optimization methods may not.
+    and it behaves fine but other optimisation methods may not.
 
     Args:
         indices: candidate-grid indices (floats, rounded internally) selecting
