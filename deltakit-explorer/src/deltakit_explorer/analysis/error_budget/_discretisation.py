@@ -130,7 +130,7 @@ def _c_optimal_objective(
     measure of design quality rather than absolute x-scale.
 
     It's worth noting in this objective function there's two points of discontuinity,
-    the first is where where we round indeces to integers, the second is when
+    the first is where where we round `indices` to integers, the second is when
     we return np.inf. We use `differential_evolution` to optimize this function
     and it behaves fine but other optimisation methods may not.
 
