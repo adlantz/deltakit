@@ -119,14 +119,26 @@ def _c_optimal_objective(
 ) -> float:
     """Slope variance at ``c`` for the design at the given candidate indices.
 
+    The coefficient covariance is computed as cov = (X.T @ X)^-1, where
+    X is the Vandermonde matrix
+    (https://en.wikipedia.org/wiki/Vandermonde_matrix); up to the constant
+    noise variance this is the covariance of the fitted polynomial
+    coefficients.
+
     The variance is computed in rescaled ``[-1, 1]`` coordinates so the
     Vandermonde columns are all ``O(1)`` and ``cond(X.T @ X)`` is a meaningful
     measure of design quality rather than absolute x-scale.
 
+    It's worth noting in this objective function there's two points of discontuinity,
+    the first is where where we round indeces to integers, the second is when
+    we return np.inf. We use `differential_evolution` to optimize this function
+    and it behaves fine but other optimization methods may not.
+
     Args:
         indices: candidate-grid indices (floats, rounded internally) selecting
             the design points to evaluate.
-        candidate_grid: the full grid of candidate x-values to choose from.
+        candidate_grid: the full grid of candidate x-values to choose from in
+            sorted order (increasing or decreasing).
         degree: polynomial degree of the downstream fit.
         c: evaluation point at which the slope variance is computed.
 

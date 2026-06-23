@@ -49,49 +49,33 @@ def test_logarithmic_points(
 
 @pytest.mark.parametrize(
     ("func", "abc"),
-    list(
-        itertools.product(
-            [get_linear_points, get_logarithmic_points],
-            [
-                (1, 2, 3),  # a < b < c
-                (2, 1, 3),  # b < a < c
-                (3, 1, 2),  # b < c < a
-                (2, 3, 1),  # c < a < b
-                (3, 2, 1),  # c < b < a
-            ],
-        )
+    itertools.product(
+        [get_linear_points, get_logarithmic_points, get_c_optimal_points],
+        [
+            (1.0, 2.0, 3.0),  # a < b < c
+            (2.0, 1.0, 3.0),  # b < a < c
+            (3.0, 1.0, 2.0),  # b < c < a
+            (2.0, 3.0, 1.0),  # c < a < b
+            (3.0, 2.0, 1.0),  # c < b < a
+        ],
     ),
 )
 def test_raises_on_invalid_inputs(
     func: GradientFitDiscretisationGenerator, abc: tuple[float, float, float]
 ) -> None:
-    a, b, c = abc
-    with pytest.raises(ValueError, match=f"Expected {a=} < {c=} < {b=}"):
-        func(a, b, c, 5, 3)
-
-
-@pytest.mark.parametrize(
-    "abc",
-    [
-        (1.0, 2.0, 3.0),  # a < b < c
-        (2.0, 1.0, 3.0),  # b < a < c
-        (3.0, 1.0, 2.0),  # b < c < a
-        (2.0, 3.0, 1.0),  # c < a < b
-        (3.0, 2.0, 1.0),  # c < b < a
-    ],
-)
-def test_c_optimal_raises_on_invalid_inputs(
-    abc: tuple[float, float, float],
-) -> None:
     """Invalid ``a < c < b`` orderings must raise. Float inputs are used
-    throughout so the error message formats ``c`` consistently.
+    throughout so the error message formats ``c`` consistently across
+    generators: ``get_c_optimal_points`` coerces ``c`` to float before
+    validating, so integer triples would raise ``c=3.0`` and fail to match
+    the integer-derived pattern.
 
     Args:
+        func: the discretisation generator under test.
         abc: an ``(a, b, c)`` triple whose ordering violates ``a < c < b``.
     """
     a, b, c = abc
     with pytest.raises(ValueError, match=f"Expected {a=} < {c=} < {b=}"):
-        get_c_optimal_points(a, b, c, 5, 3)
+        func(a, b, c, 5, 3)
 
 
 def test_raise_on_negative_inputs_log() -> None:
