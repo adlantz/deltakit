@@ -93,7 +93,7 @@ def test_raise_on_negative_inputs_log() -> None:
 
 @pytest.mark.parametrize(
     ("a", "b", "num_points", "degree"),
-    itertools.product([2e-3, 1e-2], [5e-2, 1e-1], [5, 10, 15], [1, 2, 3]),
+    list(itertools.product([2e-3, 1e-2], [5e-2, 1e-1], [5, 10, 15], [1, 2, 3])),
 )
 def test_c_optimal_points_shape_and_bounds(
     a: float, b: float, num_points: int, degree: int
