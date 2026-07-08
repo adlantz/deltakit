@@ -121,7 +121,7 @@ def _c_optimal_objective(
 
     The coefficient covariance is computed as cov = (X.T @ X)^-1, where
     X is the Vandermonde matrix
-    (https://en.wikipedia.org/wiki/Vandermonde_matrix); up to the constant
+    (https://en.wikipedia.org/wiki/Vandermonde_matrix); up to the assumed constant
     noise variance this is the covariance of the fitted polynomial
     coefficients.
 
