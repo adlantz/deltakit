@@ -189,7 +189,7 @@ def test_discretisation_strategy_exposes_c_optimal() -> None:
 
 
 @pytest.mark.parametrize(
-    ("num_points", "degree"), itertools.product([5, 10], [1, 2, 3])
+    ("num_points", "degree"), list(itertools.product([5, 10], [1, 2, 3]))
 )
 def test_discretisation_strategy_dispatches_c_optimal(
     num_points: int, degree: int
